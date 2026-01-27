@@ -96,6 +96,7 @@ func NewServer(parse ParseFn, options ...OptionFn) (*Server, error) {
 		Portals:         DefaultPortalCacheFn,
 		Session:         func(ctx context.Context) (context.Context, error) { return ctx, nil },
 		ShutdownTimeout: 1 * time.Second,
+		activeConns:     NewSafeMap[net.Conn, struct{}](),
 	}
 
 	for _, option := range options {
@@ -132,6 +133,7 @@ type Server struct {
 	ShutdownTimeout  time.Duration
 	typeExtension    func(*pgtype.Map)
 	closer           chan struct{}
+	activeConns      *SafeMap[net.Conn, struct{}] // Track active connections for forced shutdown
 }
 
 // ListenAndServe opens a new Postgres server on the preconfigured address and
@@ -190,9 +192,15 @@ func (srv *Server) Serve(listener net.Listener) error {
 			continue
 		}
 
-		go func() {
+		// Register the connection for tracking
+		srv.activeConns.Set(conn, struct{}{})
+
+		go func(c net.Conn) {
+			// Ensure connection is unregistered when done
+			defer srv.activeConns.Delete(c)
+
 			ctx := context.Background()
-			err = srv.serve(ctx, conn)
+			err = srv.serve(ctx, c)
 			if err != nil {
 				if srv.isNormalConnectionClosure(err) {
 					srv.logger.Debug("client connection closed", "err", err)
@@ -200,7 +208,7 @@ func (srv *Server) Serve(listener net.Listener) error {
 					srv.logger.Error("an unexpected error got returned while serving a client connection", "err", err)
 				}
 			}
-		}()
+		}(conn)
 	}
 }
 
@@ -353,7 +361,18 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		srv.logger.Info("graceful shutdown completed")
 		return nil
 	case <-shutdownCtx.Done():
-		srv.logger.Warn("graceful shutdown timed out, some connections may be forcefully closed")
+		srv.logger.Warn("graceful shutdown timed out, forcing connection closure", "active_connections", srv.activeConns.Len())
+
+		// Force close all remaining connections
+		// This will unblock any goroutines stuck in ReadTypedMsg() or other blocking I/O
+		for conn := range srv.activeConns.All() {
+			srv.logger.Debug("forcing connection close", "remote_addr", conn.RemoteAddr())
+			_ = conn.Close() // Force close the TCP connection
+		}
+
+		// Give connections a moment to actually close and clean up
+		time.Sleep(100 * time.Millisecond)
+
 		return shutdownCtx.Err()
 	}
 }
