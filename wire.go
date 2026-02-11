@@ -147,6 +147,7 @@ type Server struct {
 	TxStatus         TxStatusFn
 	Version          string
 	ShutdownTimeout  time.Duration
+	MaxConnLifetime  time.Duration
 	typeExtension    func(*pgtype.Map)
 	closer           chan struct{}
 	activeConns      *SafeMap[net.Conn, struct{}] // Track active connections for forced shutdown
@@ -417,7 +418,7 @@ func (srv *Server) Wait() {
 // that shouldn't be logged as an error.
 func (srv *Server) isNormalConnectionClosure(err error) bool {
 	// Check for conn closed or conn termination normally
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, errMaxConnLifetimeExceeded) {
 		return true
 	}
 
