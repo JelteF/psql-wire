@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/jeroenrinzema/psql-wire/pkg/buffer"
 	"github.com/jeroenrinzema/psql-wire/pkg/types"
 )
+
+var errMaxConnLifetimeExceeded = errors.New("maximum connection lifetime exceeded")
 
 // NewErrUnimplementedMessageType is called whenever an unimplemented message
 // type is sent. This error indicates to the client that the sent message cannot
@@ -79,22 +82,26 @@ func (srv *Session) consumeCommands(ctx context.Context, conn net.Conn, reader *
 	defer srv.Close()
 
 	if srv.MaxConnLifetime > 0 {
-		err = conn.SetReadDeadline(time.Now().Add(srv.MaxConnLifetime))
+		deadline := time.Now().Add(srv.MaxConnLifetime)
+		err = conn.SetReadDeadline(deadline)
 		if err != nil {
 			return err
 		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
 	}
 
 	for {
 		err = srv.consumeSingleCommand(ctx, reader, writer, conn)
 		if err != nil {
-			var netErr net.Error
-			if srv.MaxConnLifetime > 0 && errors.As(err, &netErr) && netErr.Timeout() {
+			if srv.MaxConnLifetime > 0 && (errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)) {
 				fatalErr := psqlerr.WithSeverity(psqlerr.WithCode(
 					fmt.Errorf("terminating connection due to maximum connection lifetime (%s) exceeded", srv.MaxConnLifetime),
 					codes.AdminShutdown,
 				), psqlerr.LevelFatal)
 				_ = ErrorCode(writer, fatalErr)
+				return fmt.Errorf("connection %s: %w (%s)", conn.RemoteAddr(), errMaxConnLifetimeExceeded, srv.MaxConnLifetime)
 			}
 			return err
 		}

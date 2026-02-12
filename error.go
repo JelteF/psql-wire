@@ -79,7 +79,7 @@ func ErrorCode(writer *buffer.Writer, err error) error {
 	// NOTE: we are writing a ready for query message to indicate the end of a
 	// command cycle. However, for authentication failures, we skip this
 	// because the connection will be terminated.
-	if desc.Code == codes.InvalidPassword {
+	if desc.Severity == "FATAL" || desc.Code == codes.InvalidPassword {
 		return nil
 	}
 
