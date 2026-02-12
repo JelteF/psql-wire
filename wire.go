@@ -382,7 +382,7 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 // that shouldn't be logged as an error.
 func (srv *Server) isNormalConnectionClosure(err error) bool {
 	// Check for conn closed or conn termination normally
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, errMaxConnLifetimeExceeded) {
 		return true
 	}
 
