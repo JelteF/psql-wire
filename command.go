@@ -397,6 +397,18 @@ func (srv *Session) handleParse(ctx context.Context, reader *buffer.Reader, writ
 		// `reader.GetUint32()`
 	}
 
+	existing, err := srv.Statements.Get(ctx, name)
+	if err != nil {
+		if srv.ParallelPipeline.Enabled {
+			return srv.drainQueueAndWriteError(ctx, writer, err)
+		}
+		return srv.ErrorCode(writer, err)
+	}
+
+	if existing != nil {
+		srv.Portals.DeleteByStatement(ctx, existing) //nolint:errcheck
+	}
+
 	if srv.ParallelPipeline.Enabled {
 		return srv.parsePipelined(ctx, writer, name, query)
 	}
@@ -744,6 +756,17 @@ func (srv *Session) handleClose(ctx context.Context, reader *buffer.Reader, writ
 	}
 
 	srv.logger.Debug("incoming close request", slog.String("type", string(d[0])), slog.String("name", name))
+
+	switch types.DescribeMessage(d[0]) {
+	case types.DescribeStatement:
+		stmt, _ := srv.Statements.Get(ctx, name)
+		srv.Statements.Delete(ctx, name) //nolint:errcheck
+		if stmt != nil {
+			srv.Portals.DeleteByStatement(ctx, stmt) //nolint:errcheck
+		}
+	case types.DescribePortal:
+		srv.Portals.Delete(ctx, name) //nolint:errcheck
+	}
 
 	if srv.ParallelPipeline.Enabled {
 		srv.ResponseQueue.Enqueue(NewCloseCompleteEvent())
