@@ -92,7 +92,7 @@ func (srv *Session) WriteError(writer *buffer.Writer, err error) error {
 	// command cycle. However, for authentication failures, we skip this
 	// because the connection will be terminated.
 	if desc.Severity == "FATAL" || desc.Code == codes.InvalidPassword {
-		return nil
+		return err
 	}
 
 	return readyForQuery(writer, types.ServerIdle)
