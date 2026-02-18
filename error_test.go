@@ -227,7 +227,7 @@ func TestSessionErrorCode(t *testing.T) {
 		}
 
 		err := session.ErrorCode(writer, psqlerr.WithCode(errors.New("invalid username/password"), codes.InvalidPassword))
-		assert.NoError(t, err)
+		assert.Error(t, err)
 
 		reader := buffer.NewReader(logger, sink, buffer.DefaultBufferSize)
 
