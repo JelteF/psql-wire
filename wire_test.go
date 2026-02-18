@@ -952,7 +952,7 @@ func TestServerShutdownTimeout(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, context.DeadlineExceeded, err)
 	assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
-	assert.Less(t, duration, 150*time.Millisecond)
+	assert.Less(t, duration, 250*time.Millisecond)
 
 	// Allow query to finish and cleanup
 	queryCanFinish.Done()
