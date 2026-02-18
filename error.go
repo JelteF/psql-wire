@@ -25,6 +25,11 @@ const (
 	errFieldConstraintName errFieldType = 'n'
 )
 
+// Temporarily added back for backwards compatibility.
+func ErrorCode(writer *buffer.Writer, err error) error {
+	return RawErrorCode(writer, err)
+}
+
 // RawErrorCode writes an ErrorResponse message to the client without
 // a trailing ReadyForQuery. Use this in contexts where no session is available
 // (e.g. authentication) or where you need to control ReadyForQuery yourself.
