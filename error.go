@@ -82,6 +82,10 @@ func RawErrorCode(writer *buffer.Writer, err error) error {
 // ErrorResponse and sets `discardUntilSync` (ReadyForQuery comes from Sync).
 // In simple query mode it writes ErrorResponse + ReadyForQuery.
 func (srv *Session) ErrorCode(writer *buffer.Writer, err error) error {
+	if srv.ErrorSanitizer != nil {
+		err = srv.ErrorSanitizer(err)
+	}
+
 	if werr := RawErrorCode(writer, err); werr != nil {
 		return werr
 	}
