@@ -3,7 +3,6 @@ package wire
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -241,10 +240,6 @@ func (srv *Server) sslUnsupported(conn net.Conn, reader *buffer.Reader, version 
 	version, err = srv.readVersion(reader)
 	if err != nil {
 		return conn, reader, version, err
-	}
-
-	if version == types.VersionCancel {
-		return conn, reader, version, errors.New("unexpected cancel version after upgrading the client connection")
 	}
 
 	return conn, reader, version, nil
