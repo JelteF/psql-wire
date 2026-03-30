@@ -292,11 +292,11 @@ func (srv *Server) serve(ctx context.Context, conn net.Conn) error {
 
 // Close gracefully closes the underlaying Postgres server.
 func (srv *Server) Close() error {
-	if srv.closing.Load() {
+	if !srv.closing.CompareAndSwap(false, true) {
+		srv.wg.Wait()
 		return nil
 	}
 
-	srv.closing.Store(true)
 	close(srv.closer)
 	srv.wg.Wait()
 	return nil
@@ -308,7 +308,7 @@ func (srv *Server) Close() error {
 // If the context has no deadline, the server's ShutdownTimeout is used.
 func (srv *Server) Shutdown(ctx context.Context) error {
 	// Check if already shutting down or shut down
-	if srv.closing.Load() {
+	if !srv.closing.CompareAndSwap(false, true) {
 		// If already closing, just wait for existing shutdown to complete
 		srv.wg.Wait()
 		return nil
@@ -328,13 +328,6 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 		shutdownCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
 	defer cancel()
-
-	// Atomically check and set closing state
-	if !srv.closing.CompareAndSwap(false, true) {
-		// Another goroutine beat us to it, just wait for shutdown to complete
-		srv.wg.Wait()
-		return nil
-	}
 
 	srv.logger.Info("starting graceful shutdown")
 

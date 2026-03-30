@@ -138,6 +138,11 @@ func (srv *Session) consumeSingleCommand(ctx context.Context, reader *buffer.Rea
 	// NOTE: we increase the wait group by one in order to make sure that idle
 	// connections are not blocking a close.
 	srv.wg.Add(1)
+	if srv.closing.Load() {
+		srv.wg.Done()
+		return nil
+	}
+
 	srv.logger.Debug("<- incoming command", slog.Int("length", length), slog.String("type", t.String()))
 	err = srv.handleCommand(ctx, conn, t, reader, writer)
 	srv.wg.Done()
