@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// guardHandler embeds a slog.Handler and can be atomically disabled to
+// prevent t.Log calls after a test has finished.
+type guardHandler struct {
+	slog.Handler
+	disabled atomic.Bool
+}
+
+func (h *guardHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	if h.disabled.Load() {
+		return false
+	}
+	return h.Handler.Enabled(ctx, level)
+}
+
+func (h *guardHandler) Handle(ctx context.Context, record slog.Record) error {
+	if h.disabled.Load() {
+		return nil
+	}
+	return h.Handler.Handle(ctx, record)
+}
+
 // TListenAndServe will open a new TCP listener on a unallocated port inside
 // the local network. The newly created listener is passed to the given server to
 // start serving PostgreSQL connections. The full listener address is returned
@@ -32,7 +54,11 @@ func TListenAndServe(t *testing.T, server *Server) *net.TCPAddr {
 		t.Fatal(err)
 	}
 
+	guard := &guardHandler{Handler: server.logger.Handler()}
+	server.logger = slog.New(guard)
+
 	t.Cleanup(func() {
+		guard.disabled.Store(true)
 		err := server.Close()
 		if err != nil {
 			t.Fatal(err)
