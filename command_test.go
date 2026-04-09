@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"testing"
@@ -60,7 +61,7 @@ func TestBindMessageParameters(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query string, _ []uint32) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			t.Log("serving query")
 
@@ -183,7 +184,7 @@ func TestPortalSuspended(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query string, _ []uint32) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			for i := 0; i < totalRows; i++ {
 				if err := writer.Row([]any{int32(i)}); err != nil {
@@ -251,7 +252,7 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, query string) (PreparedStatements, error) {
+	handler := func(ctx context.Context, query string, _ []uint32) (PreparedStatements, error) {
 		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
 			if err := writer.Row([]any{int32(1)}); err != nil {
 				return err
@@ -296,4 +297,78 @@ func TestReExecuteCompletedPortal(t *testing.T) {
 	client.ExpectMsg(t, types.ServerReady)
 
 	client.Close(t)
+}
+
+// TestClientParameterTypeMismatch demonstrates that when a client sends binary
+// parameters using a smaller integer type (e.g. int2) than what the server
+// would otherwise declare (e.g. int8), the ParseFn can use the parameterOIDs
+// argument to match the client's types and decode correctly.
+//
+// This happens in practice with clients like psycopg3 that encode small Python
+// ints as int2 (2 bytes binary), while the server-side resolved type may be
+// int8 (bigint). PostgreSQL handles this via implicit casts at the planning
+// level. psql-wire passes the client-specified parameter OIDs from the Parse
+// message to ParseFn so handlers can do the same.
+func TestClientParameterTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	columns := Columns{
+		{
+			Table: 0,
+			Name:  "val",
+			Oid:   pgtype.Int8OID,
+			Width: 8,
+		},
+	}
+
+	handler := func(ctx context.Context, query string, parameterOIDs []uint32) (PreparedStatements, error) {
+		// The parameterOIDs slice tells us what types the client will
+		// send binary data as. We can use this to set WithParameters to
+		// match the client's types, so Scan decodes correctly.
+		if len(parameterOIDs) == 0 {
+			parameterOIDs = ParseParameters(query)
+		}
+
+		handle := func(ctx context.Context, writer DataWriter, parameters []Parameter) error {
+			val, err := parameters[0].Scan(parameterOIDs[0])
+			if err != nil {
+				return err
+			}
+
+			writer.Row([]any{val}) //nolint:errcheck
+			return writer.Complete("SELECT 1")
+		}
+
+		return Prepared(NewStatement(handle,
+			WithColumns(columns),
+			WithParameters(parameterOIDs),
+		)), nil
+	}
+
+	server, err := NewServer(handler, Logger(slogt.New(t)))
+	require.NoError(t, err)
+
+	address := TListenAndServe(t, server)
+
+	ctx := context.Background()
+	connstr := fmt.Sprintf("postgres://%s:%d", address.IP, address.Port)
+
+	conn, err := pgx.Connect(ctx, connstr)
+	require.NoError(t, err)
+	defer conn.Close(ctx) //nolint:errcheck
+
+	t.Run("int2 binary for int8 parameter", func(t *testing.T) {
+		int2Bytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(int2Bytes, 42)
+
+		result := conn.PgConn().ExecParams(ctx,
+			"SELECT $1",
+			[][]byte{int2Bytes},
+			[]uint32{pgtype.Int2OID},
+			[]int16{pgx.BinaryFormatCode},
+			nil,
+		)
+		_, err := result.Close()
+		assert.NoError(t, err, "handler should decode binary int2 via ClientOID()")
+	})
 }

@@ -33,7 +33,7 @@ func run() error {
 	return server.ListenAndServe("127.0.0.1:5432")
 }
 
-func handler(ctx context.Context, query string) (wire.PreparedStatements, error) {
+func handler(ctx context.Context, query string, _ []uint32) (wire.PreparedStatements, error) {
 	slog.Info("incoming SQL query", slog.String("query", query))
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {

@@ -105,7 +105,7 @@ var table = wire.Columns{
 }
 
 // wireHandler processes incoming SQL queries
-func (s *PostgreServer) wireHandler(ctx context.Context, query string) (wire.PreparedStatements, error) {
+func (s *PostgreServer) wireHandler(ctx context.Context, query string, _ []uint32) (wire.PreparedStatements, error) {
 	s.logger.Printf("incoming SQL query: %s", query)
 
 	handle := func(ctx context.Context, writer wire.DataWriter, parameters []wire.Parameter) error {

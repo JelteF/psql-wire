@@ -13,8 +13,13 @@ import (
 )
 
 // ParseFn parses the given query and returns a prepared statement which could
-// be used to execute at a later point in time.
-type ParseFn func(ctx context.Context, query string) (PreparedStatements, error)
+// be used to execute at a later point in time. The parameterOIDs slice contains
+// the parameter type OIDs that the client specified in the Parse message. A
+// zero OID means the client left that parameter's type unspecified. Similarly
+// the amount of provided parmeter OIDs may be less than the number of
+// parameters that apeoar in the query string, indicating that the server can
+// decide the types for the unspecified parameters.
+type ParseFn func(ctx context.Context, query string, parameterOIDs []uint32) (PreparedStatements, error)
 
 // PreparedStatementFn represents a query of which a statement has been
 // prepared. The statement could be executed at any point in time with the given
